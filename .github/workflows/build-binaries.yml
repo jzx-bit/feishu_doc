@@ -1,0 +1,56 @@
+name: build-binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: feishu-doc-down-linux-x64
+            binary: feishu-doc-down
+            asset: feishu-doc-down-linux-x64
+          - os: windows-latest
+            artifact: feishu-doc-down-windows-x64
+            binary: feishu-doc-down.exe
+            asset: feishu-doc-down-windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install ".[build]"
+
+      - name: Build binary
+        run: python -m PyInstaller --onefile --name feishu-doc-down --hidden-import qrcode feishu_doc_down/cli.py
+
+      - name: Prepare release asset
+        run: |
+          python -c "from pathlib import Path; import shutil; Path('release').mkdir(exist_ok=True); shutil.copy2(Path('dist') / '${{ matrix.binary }}', Path('release') / '${{ matrix.asset }}')"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/*
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
