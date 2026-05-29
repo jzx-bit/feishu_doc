@@ -40,8 +40,6 @@ DEFAULT_SCOPE = (
     "search:docs:read "
     "wiki:wiki:readonly "
     "wiki:node:retrieve "
-    "calendar:calendar:readonly "
-    "calendar:calendar.calendar:readonly "
     "calendar:calendar:read "
     "calendar:calendar.event:read "
     "drive:file:download "

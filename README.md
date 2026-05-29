@@ -243,7 +243,7 @@ dist\feishu-doc-down.exe menu
 - 获取 drive v1 文件夹内文件清单：`drive:drive:readonly`
 - 搜索云文档：`search:docs:read`
 - 获取“我的文档库”节点列表：`wiki:wiki:readonly` 或 `wiki:node:retrieve`
-- 读取日历列表/主日历：`calendar:calendar:read`、`calendar:calendar:readonly` 或 `calendar:calendar.calendar:readonly`
+- 读取日历列表/主日历：`calendar:calendar:read`
 - 读取日程列表：`calendar:calendar.event:read`
 - 下载普通云空间文件：`drive:file:download`
 - 导出在线文档：`docs:document:export`
@@ -255,13 +255,13 @@ dist\feishu-doc-down.exe menu
 建议一次性申请并授权这些 scope：
 
 ```text
-auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access
+auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access
 ```
 
 如果你的租户权限 key 不一样，可以显式传入：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
 ```
 
 `drive:drive` 包含编辑/管理能力，范围明显更大；但飞书历史版 Explorer v2 的“获取文件夹下文档清单”接口明确要求这个权限。
@@ -332,7 +332,7 @@ feishu-doc-down ./downloads --token '你的_user_access_token'
 处理方式：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
 feishu-doc-down ./downloads
 ```
 
