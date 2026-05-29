@@ -226,6 +226,32 @@ feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata
 
 Windows 打包版会保存到 `%APPDATA%\feishu-doc-down\token.json`。
 
+### sudo 下读不到环境变量
+
+Linux/macOS 上不要用 `sudo` 运行授权命令。`sudo` 默认会清空当前 shell 里的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，还会把 token 保存到 root 用户目录。
+
+正确方式：
+
+```bash
+chmod +x ./feishu-doc-down-linux-x64
+export FEISHU_APP_ID='cli_xxxx'
+export FEISHU_APP_SECRET='xxxx'
+./feishu-doc-down-linux-x64 auth
+```
+
+如果文件名是 `feishu-doc-down`：
+
+```bash
+chmod +x ./feishu-doc-down
+./feishu-doc-down auth
+```
+
+只有在明确知道后果时才使用：
+
+```bash
+sudo -E ./feishu-doc-down auth
+```
+
 飞书新版 OAuth 返回的 `user_access_token` 不一定以 `u-` 开头，只要它来自上述授权流程即可。
 
 ### 下载报错：错误码 99991661
