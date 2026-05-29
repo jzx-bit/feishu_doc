@@ -42,6 +42,7 @@ feishu-doc-down menu
 3. 全部
 4. 搜索
 5. 按链接下载
+6. 导出日历日程
 ```
 
 默认下载来源是“我的文档库”，对应飞书 Web 左侧“我的文档库”侧栏：
@@ -164,6 +165,47 @@ feishu-doc-down ./downloads --base-url https://open.larksuite.com
 feishu-doc-down ./downloads --dry-run
 ```
 
+## 导出日历
+
+导出主日历某个时间范围内的日程：
+
+```bash
+feishu-doc-down calendar ./calendar-events.csv \
+  --start 2026-05-01 \
+  --end 2026-06-01 \
+  --format csv
+```
+
+支持格式：
+
+```text
+csv
+json
+ics
+```
+
+导出全部可读日历：
+
+```bash
+feishu-doc-down calendar ./calendar-export \
+  --all-calendars \
+  --start 2026-05-01 \
+  --end 2026-06-01 \
+  --format csv
+```
+
+指定日历 ID：
+
+```bash
+feishu-doc-down calendar ./calendar-events.ics \
+  --calendar-id 'feishu.cn_xxx@group.calendar.feishu.cn' \
+  --start 2026-05-01T00:00:00+08:00 \
+  --end 2026-06-01T00:00:00+08:00 \
+  --format ics
+```
+
+说明：飞书 `calendar/v4/calendars/:calendar_id/events` 按 `start_time` / `end_time` 查询时不分页；如果时间范围太大，服务端可能按 `page_size` 截断。建议按月或按季度导出。
+
 ## 打包客户端
 
 本地打包当前平台的单文件命令行客户端：
@@ -201,6 +243,8 @@ dist\feishu-doc-down.exe menu
 - 获取 drive v1 文件夹内文件清单：`drive:drive:readonly`
 - 搜索云文档：`search:docs:read`
 - 获取“我的文档库”节点列表：`wiki:wiki:readonly` 或 `wiki:node:retrieve`
+- 读取日历列表/主日历：`calendar:calendar:read`、`calendar:calendar:readonly` 或 `calendar:calendar.calendar:readonly`
+- 读取日程列表：`calendar:calendar.event:read`
 - 下载普通云空间文件：`drive:file:download`
 - 导出在线文档：`docs:document:export`
 - 刷新 token：`offline_access`
@@ -211,13 +255,13 @@ dist\feishu-doc-down.exe menu
 建议一次性申请并授权这些 scope：
 
 ```text
-auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve drive:file:download docs:document:export offline_access
+auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access
 ```
 
 如果你的租户权限 key 不一样，可以显式传入：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
 ```
 
 `drive:drive` 包含编辑/管理能力，范围明显更大；但飞书历史版 Explorer v2 的“获取文件夹下文档清单”接口明确要求这个权限。
@@ -288,7 +332,7 @@ feishu-doc-down ./downloads --token '你的_user_access_token'
 处理方式：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:readonly calendar:calendar.calendar:readonly calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
 feishu-doc-down ./downloads
 ```
 
@@ -328,3 +372,6 @@ feishu-doc-down ./downloads
 - 查询导出任务：`GET /open-apis/drive/v1/export_tasks/:ticket`
 - 下载导出文件：`GET /open-apis/drive/v1/export_tasks/file/:file_token/download`
 - 下载普通文件：`GET /open-apis/drive/v1/files/:file_token/download`
+- 获取主日历：`POST /open-apis/calendar/v4/calendars/primary`
+- 获取日历列表：`GET /open-apis/calendar/v4/calendars`
+- 获取日程列表：`GET /open-apis/calendar/v4/calendars/:calendar_id/events`

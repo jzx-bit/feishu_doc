@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import secrets
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Iterable
@@ -38,6 +40,10 @@ DEFAULT_SCOPE = (
     "search:docs:read "
     "wiki:wiki:readonly "
     "wiki:node:retrieve "
+    "calendar:calendar:readonly "
+    "calendar:calendar.calendar:readonly "
+    "calendar:calendar:read "
+    "calendar:calendar.event:read "
     "drive:file:download "
     "docs:document:export "
     "offline_access"
@@ -173,6 +179,41 @@ class FeishuClient:
             if not data.get("has_more"):
                 break
             offset += len(entities) or count
+
+    def get_primary_calendar(self) -> dict[str, Any]:
+        data = self._request_json("POST", "/open-apis/calendar/v4/calendars/primary")
+        return data.get("calendar") or data
+
+    def list_calendars(self, page_size: int) -> Iterable[dict[str, Any]]:
+        page_token = None
+        while True:
+            params: dict[str, Any] = {"page_size": page_size}
+            if page_token:
+                params["page_token"] = page_token
+            data = self._request_json("GET", "/open-apis/calendar/v4/calendars", params=params)
+            for item in data.get("calendar_list", []) or data.get("items", []):
+                yield item
+            if not data.get("has_more"):
+                break
+            page_token = data.get("page_token")
+            if not page_token:
+                raise FeishuError("list calendars returned has_more=true without page_token")
+
+    def list_calendar_events(
+        self,
+        calendar_id: str,
+        start_ts: int,
+        end_ts: int,
+        page_size: int,
+    ) -> Iterable[dict[str, Any]]:
+        params = {
+            "start_time": str(start_ts),
+            "end_time": str(end_ts),
+            "page_size": page_size,
+        }
+        data = self._request_json("GET", f"/open-apis/calendar/v4/calendars/{calendar_id}/events", params=params)
+        for item in data.get("items", []):
+            yield item
 
     def create_export_task(self, token: str, file_type: str, extension: str) -> str:
         payload = {"token": token, "type": file_type, "file_extension": extension}
@@ -342,6 +383,24 @@ def parse_menu_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def parse_calendar_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="feishu-doc-down calendar",
+        description="Export Feishu calendar events.",
+    )
+    parser.add_argument("output", type=Path, help="output file path, or directory when exporting all calendars")
+    parser.add_argument("--config", type=Path, default=default_config_path(), help="saved auth config path")
+    parser.add_argument("--base-url", default="https://open.feishu.cn", help="OpenAPI base URL")
+    parser.add_argument("--calendar-id", default="primary", help="calendar ID, or primary")
+    parser.add_argument("--all-calendars", action="store_true", help="export all readable calendars into a directory")
+    parser.add_argument("--start", required=True, help="start datetime, for example 2026-05-01 or 2026-05-01T00:00:00+08:00")
+    parser.add_argument("--end", required=True, help="end datetime, for example 2026-06-01 or 2026-06-01T00:00:00+08:00")
+    parser.add_argument("--format", choices=["json", "csv", "ics"], default="csv")
+    parser.add_argument("--page-size", type=int, default=1000)
+    parser.add_argument("--timeout", type=int, default=60, help="HTTP request timeout in seconds")
+    return parser.parse_args(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if raw_args and raw_args[0] == "auth":
@@ -352,6 +411,8 @@ def main(argv: list[str] | None = None) -> int:
         return auth_main(raw_args[1:])
     if raw_args and raw_args[0] in {"menu", "interactive"}:
         return menu_main(raw_args[1:])
+    if raw_args and raw_args[0] == "calendar":
+        return calendar_main(raw_args[1:])
     if raw_args and raw_args[0] == "download":
         return download_main(raw_args[1:])
     return download_main(raw_args)
@@ -366,9 +427,32 @@ def menu_main(argv: list[str] | None = None) -> int:
     print("3. 全部")
     print("4. 搜索")
     print("5. 按链接下载")
-    choice = prompt_choice("请选择下载来源 [1-5]", {"1", "2", "3", "4", "5"}, "3")
+    print("6. 导出日历日程")
+    choice = prompt_choice("请选择下载来源 [1-6]", {"1", "2", "3", "4", "5", "6"}, "3")
 
     output_dir = args.output_dir or Path(prompt_text("保存到哪个文件夹", "./downloads"))
+    if choice == "6":
+        calendar_format = prompt_choice("导出格式 [csv/json/ics]", {"csv", "json", "ics"}, "csv")
+        start = prompt_text("开始时间，例如 2026-05-01", "")
+        end = prompt_text("结束时间，例如 2026-06-01", "")
+        all_calendars = prompt_yes_no("导出全部日历吗", False)
+        calendar_args = [
+            str(output_dir / f"calendar-events.{calendar_format}" if not all_calendars else output_dir),
+            "--config",
+            str(args.config),
+            "--base-url",
+            args.base_url,
+            "--format",
+            calendar_format,
+            "--start",
+            start,
+            "--end",
+            end,
+        ]
+        if all_calendars:
+            calendar_args.append("--all-calendars")
+        return calendar_main(calendar_args)
+
     download_args = [
         str(output_dir),
         "--config",
@@ -470,6 +554,48 @@ def download_main(argv: list[str] | None = None) -> int:
         f"planned={stats.planned}, skipped={stats.skipped}, failed={stats.failed}"
     )
     return 0 if stats.failed == 0 else 1
+
+
+def calendar_main(argv: list[str] | None = None) -> int:
+    args = parse_calendar_args(argv)
+    if args.page_size < 1 or args.page_size > 1000:
+        print("error: --page-size must be between 1 and 1000", file=sys.stderr)
+        return 2
+
+    try:
+        token = resolve_access_token(args)
+        client = FeishuClient(token, args.base_url, args.timeout)
+        start_ts = parse_datetime_to_epoch(args.start)
+        end_ts = parse_datetime_to_epoch(args.end)
+        if end_ts <= start_ts:
+            raise FeishuError("--end must be after --start")
+
+        if args.all_calendars:
+            args.output.mkdir(parents=True, exist_ok=True)
+            total = 0
+            for calendar in client.list_calendars(args.page_size):
+                calendar_id = calendar.get("calendar_id")
+                if not calendar_id:
+                    continue
+                events = list(client.list_calendar_events(calendar_id, start_ts, end_ts, args.page_size))
+                name = sanitize_filename(calendar.get("summary") or calendar_id)
+                output_path = args.output / f"{name}.{args.format}"
+                write_calendar_export(output_path, args.format, events, calendar)
+                print(f"export calendar: {calendar.get('summary') or calendar_id} -> {output_path} ({len(events)} events)")
+                total += len(events)
+            print(f"done: calendars exported, events={total}")
+            return 0
+
+        calendar = client.get_primary_calendar() if args.calendar_id == "primary" else {"calendar_id": args.calendar_id}
+        calendar_id = calendar.get("calendar_id") or args.calendar_id
+        events = list(client.list_calendar_events(calendar_id, start_ts, end_ts, args.page_size))
+        output_path = ensure_calendar_suffix(args.output, args.format)
+        write_calendar_export(output_path, args.format, events, calendar)
+        print(f"done: calendar={calendar_id}, events={len(events)}, output={output_path}")
+        return 0
+    except (requests.RequestException, FeishuError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 def auth_main(argv: list[str] | None = None) -> int:
@@ -583,6 +709,143 @@ def item_from_wiki_node(node: dict[str, Any]) -> dict[str, Any]:
         "wiki_node_token": node.get("node_token"),
         "wiki_node": node,
     }
+
+
+def parse_datetime_to_epoch(value: str) -> int:
+    raw = value.strip()
+    if raw.isdigit():
+        return int(raw)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        raw = f"{raw}T00:00:00"
+    normalized = raw.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return int(dt.timestamp())
+
+
+def ensure_calendar_suffix(path: Path, export_format: str) -> Path:
+    suffix = f".{export_format}"
+    if path.suffix.lower() == suffix:
+        return path
+    return path.with_suffix(suffix)
+
+
+def write_calendar_export(
+    output_path: Path,
+    export_format: str,
+    events: list[dict[str, Any]],
+    calendar: dict[str, Any],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if export_format == "json":
+        payload = {"calendar": calendar, "events": events}
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
+    if export_format == "csv":
+        write_calendar_csv(output_path, events)
+        return
+    write_calendar_ics(output_path, events, calendar)
+
+
+def write_calendar_csv(output_path: Path, events: list[dict[str, Any]]) -> None:
+    fields = [
+        "event_id",
+        "summary",
+        "start",
+        "end",
+        "location",
+        "description",
+        "visibility",
+        "status",
+        "app_link",
+    ]
+    with output_path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for event in events:
+            writer.writerow(
+                {
+                    "event_id": event.get("event_id"),
+                    "summary": event.get("summary"),
+                    "start": format_event_time(event.get("start_time")),
+                    "end": format_event_time(event.get("end_time")),
+                    "location": extract_location(event.get("location")),
+                    "description": event.get("description"),
+                    "visibility": event.get("visibility"),
+                    "status": event.get("status"),
+                    "app_link": event.get("app_link"),
+                }
+            )
+
+
+def write_calendar_ics(output_path: Path, events: list[dict[str, Any]], calendar: dict[str, Any]) -> None:
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//feishu-doc-down//calendar-export//CN",
+        f"X-WR-CALNAME:{ics_escape(calendar.get('summary') or 'Feishu Calendar')}",
+    ]
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for event in events:
+        uid = event.get("event_id") or event.get("uid") or secrets.token_hex(8)
+        lines.extend(
+            [
+                "BEGIN:VEVENT",
+                f"UID:{ics_escape(str(uid))}",
+                f"DTSTAMP:{now}",
+                f"SUMMARY:{ics_escape(str(event.get('summary') or ''))}",
+            ]
+        )
+        start = event_time_to_ics(event.get("start_time"))
+        end = event_time_to_ics(event.get("end_time"))
+        if start:
+            lines.append(start.replace("DT", "DTSTART", 1))
+        if end:
+            lines.append(end.replace("DT", "DTEND", 1))
+        location = extract_location(event.get("location"))
+        if location:
+            lines.append(f"LOCATION:{ics_escape(location)}")
+        description = event.get("description")
+        if description:
+            lines.append(f"DESCRIPTION:{ics_escape(str(description))}")
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    output_path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+
+
+def format_event_time(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    if value.get("date"):
+        return str(value["date"])
+    timestamp = value.get("timestamp")
+    if timestamp:
+        return datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat()
+    return ""
+
+
+def event_time_to_ics(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("date"):
+        return f"DT;VALUE=DATE:{str(value['date']).replace('-', '')}"
+    timestamp = value.get("timestamp")
+    if timestamp:
+        return "DT:" + datetime.fromtimestamp(int(timestamp), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return None
+
+
+def extract_location(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("address") or "")
+    return ""
+
+
+def ics_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
 def auth_status_main(argv: list[str] | None = None) -> int:
@@ -803,8 +1066,9 @@ def oauth_token_request(base_url: str, payload: dict[str, Any], timeout: int) ->
 
 
 def resolve_access_token(args: argparse.Namespace) -> str:
-    if args.token:
-        return args.token
+    direct_token = getattr(args, "token", None)
+    if direct_token:
+        return direct_token
 
     config = load_token_config(args.config)
     access_token = get_saved_access_token(config)
