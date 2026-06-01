@@ -17,6 +17,9 @@ build = [
 [project.scripts]
 feishu-doc-down = "feishu_doc_down.cli:main"
 
+[tool.setuptools]
+packages = ["feishu_doc_down"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
