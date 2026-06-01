@@ -439,6 +439,7 @@ def gui_main(argv: list[str] | None = None) -> int:
         import tkinter as tk
         from datetime import date, timedelta
         from tkinter import filedialog, messagebox, ttk
+        from tkinter import font as tkfont
     except Exception as exc:
         print(f"error: GUI requires tkinter: {exc}", file=sys.stderr)
         return 1
@@ -451,6 +452,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     style = ttk.Style()
     if "clam" in style.theme_names():
         style.theme_use("clam")
+    gui_font_family = configure_gui_fonts(root, style, tkfont)
 
     output_var = tk.StringVar(value=str(Path("./downloads")))
     source_var = tk.StringVar(value="all")
@@ -472,7 +474,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     header = ttk.Frame(root, padding=(16, 14, 16, 6))
     header.grid(row=0, column=0, sticky="ew")
     header.columnconfigure(1, weight=1)
-    ttk.Label(header, text="Feishu Doc Down", font=("", 16, "bold")).grid(row=0, column=0, sticky="w")
+    ttk.Label(header, text="Feishu Doc Down", style="Title.TLabel").grid(row=0, column=0, sticky="w")
     ttk.Label(header, text="授权后选择来源，下载飞书云文档、云盘文件或日历日程。").grid(
         row=1, column=0, columnspan=3, sticky="w", pady=(4, 0)
     )
@@ -520,7 +522,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     ttk.Entry(options_frame, textvariable=keyword_var).grid(row=2, column=1, sticky="ew")
 
     ttk.Label(options_frame, text="文档链接").grid(row=3, column=0, sticky="nw", padx=(0, 8), pady=(8, 0))
-    url_text = tk.Text(options_frame, height=4, wrap="word")
+    url_text = tk.Text(options_frame, height=4, wrap="word", font=(gui_font_family, 10))
     url_text.grid(row=3, column=1, sticky="ew", pady=(8, 0))
 
     ttk.Label(options_frame, text="日历开始").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
@@ -543,7 +545,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     log_frame.grid(row=3, column=0, sticky="nsew", padx=16, pady=(4, 10))
     log_frame.columnconfigure(0, weight=1)
     log_frame.rowconfigure(0, weight=1)
-    log_text = tk.Text(log_frame, height=12, wrap="word")
+    log_text = tk.Text(log_frame, height=12, wrap="word", font=(gui_font_family, 10))
     log_text.grid(row=0, column=0, sticky="nsew")
     scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
     scrollbar.grid(row=0, column=1, sticky="ns")
@@ -659,6 +661,61 @@ def gui_main(argv: list[str] | None = None) -> int:
     append_log("先点“授权”完成飞书登录，再选择来源并点“开始”。\n")
     root.mainloop()
     return 0
+
+
+def configure_gui_fonts(root: Any, style: Any, tkfont: Any) -> str:
+    available = {name.casefold(): name for name in tkfont.families(root)}
+    candidates = gui_font_candidates()
+    default_family = tkfont.nametofont("TkDefaultFont").actual("family")
+    family = next((available[name.casefold()] for name in candidates if name.casefold() in available), default_family)
+
+    font_specs = {
+        "TkDefaultFont": {"family": family, "size": 10},
+        "TkTextFont": {"family": family, "size": 10},
+        "TkMenuFont": {"family": family, "size": 10},
+        "TkHeadingFont": {"family": family, "size": 10, "weight": "bold"},
+        "TkCaptionFont": {"family": family, "size": 10},
+        "TkSmallCaptionFont": {"family": family, "size": 9},
+        "TkIconFont": {"family": family, "size": 10},
+        "TkTooltipFont": {"family": family, "size": 9},
+    }
+    for name, spec in font_specs.items():
+        try:
+            tkfont.nametofont(name).configure(**spec)
+        except Exception:
+            continue
+
+    default_font = (family, 10)
+    root.option_add("*Font", default_font)
+    style.configure(".", font=default_font)
+    style.configure("TLabel", font=default_font)
+    style.configure("TButton", font=default_font)
+    style.configure("TEntry", font=default_font)
+    style.configure("TCombobox", font=default_font)
+    style.configure("TRadiobutton", font=default_font)
+    style.configure("TCheckbutton", font=default_font)
+    style.configure("TLabelframe.Label", font=(family, 10, "bold"))
+    style.configure("Title.TLabel", font=(family, 16, "bold"))
+    return family
+
+
+def gui_font_candidates() -> list[str]:
+    common = [
+        "Noto Sans CJK SC",
+        "Source Han Sans SC",
+        "WenQuanYi Micro Hei",
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "SimHei",
+        "Arial Unicode MS",
+    ]
+    if sys.platform.startswith("win"):
+        return ["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "NSimSun", *common]
+    if sys.platform == "darwin":
+        return ["PingFang SC", "Hiragino Sans GB", "Heiti SC", *common]
+    return ["Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Noto Sans CJK JP", *common]
 
 
 def menu_main(argv: list[str] | None = None) -> int:
