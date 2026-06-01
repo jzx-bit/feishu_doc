@@ -405,6 +405,11 @@ def parse_calendar_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
+    program_name = Path(sys.argv[0]).stem.lower()
+    if raw_args and raw_args[0] == "gui":
+        return gui_main(raw_args[1:])
+    if "gui" in program_name and (not raw_args or raw_args[0] not in {"auth", "menu", "interactive", "calendar", "download"}):
+        return gui_main(raw_args)
     if raw_args and raw_args[0] == "auth":
         if len(raw_args) > 1 and raw_args[1] == "app-config":
             return auth_app_config_main(raw_args[2:])
@@ -420,6 +425,240 @@ def main(argv: list[str] | None = None) -> int:
     if raw_args and raw_args[0] == "download":
         return download_main(raw_args[1:])
     return download_main(raw_args)
+
+
+def gui_main(argv: list[str] | None = None) -> int:
+    if argv and argv[0] in {"-h", "--help"}:
+        print("usage: feishu-doc-down gui")
+        print("Open the Feishu Doc Down desktop window.")
+        return 0
+
+    try:
+        import contextlib
+        import threading
+        import tkinter as tk
+        from datetime import date, timedelta
+        from tkinter import filedialog, messagebox, ttk
+    except Exception as exc:
+        print(f"error: GUI requires tkinter: {exc}", file=sys.stderr)
+        return 1
+
+    root = tk.Tk()
+    root.title("Feishu Doc Down")
+    root.geometry("860x640")
+    root.minsize(760, 540)
+
+    style = ttk.Style()
+    if "clam" in style.theme_names():
+        style.theme_use("clam")
+
+    output_var = tk.StringVar(value=str(Path("./downloads")))
+    source_var = tk.StringVar(value="all")
+    dry_run_var = tk.BooleanVar(value=False)
+    skip_existing_var = tk.BooleanVar(value=True)
+    keyword_var = tk.StringVar()
+    calendar_format_var = tk.StringVar(value="csv")
+    all_calendars_var = tk.BooleanVar(value=False)
+    today = date.today()
+    default_end = today + timedelta(days=1)
+    default_start = today.replace(day=1)
+    calendar_start_var = tk.StringVar(value=default_start.isoformat())
+    calendar_end_var = tk.StringVar(value=default_end.isoformat())
+    running_var = tk.BooleanVar(value=False)
+
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(3, weight=1)
+
+    header = ttk.Frame(root, padding=(16, 14, 16, 6))
+    header.grid(row=0, column=0, sticky="ew")
+    header.columnconfigure(1, weight=1)
+    ttk.Label(header, text="Feishu Doc Down", font=("", 16, "bold")).grid(row=0, column=0, sticky="w")
+    ttk.Label(header, text="授权后选择来源，下载飞书云文档、云盘文件或日历日程。").grid(
+        row=1, column=0, columnspan=3, sticky="w", pady=(4, 0)
+    )
+
+    output_frame = ttk.Frame(root, padding=(16, 8, 16, 6))
+    output_frame.grid(row=1, column=0, sticky="ew")
+    output_frame.columnconfigure(1, weight=1)
+    ttk.Label(output_frame, text="保存目录").grid(row=0, column=0, sticky="w", padx=(0, 8))
+    ttk.Entry(output_frame, textvariable=output_var).grid(row=0, column=1, sticky="ew")
+
+    def browse_output() -> None:
+        selected = filedialog.askdirectory(initialdir=output_var.get() or ".")
+        if selected:
+            output_var.set(selected)
+
+    ttk.Button(output_frame, text="选择", command=browse_output).grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+    main_frame = ttk.Frame(root, padding=(16, 8, 16, 8))
+    main_frame.grid(row=2, column=0, sticky="ew")
+    main_frame.columnconfigure(1, weight=1)
+
+    source_frame = ttk.LabelFrame(main_frame, text="下载来源", padding=10)
+    source_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+    source_options = [
+        ("全部", "all"),
+        ("云盘", "explorer"),
+        ("我的文档库", "my-library"),
+        ("搜索", "search"),
+        ("按链接", "url"),
+        ("日历日程", "calendar"),
+    ]
+    for row, (label, value) in enumerate(source_options):
+        ttk.Radiobutton(source_frame, text=label, value=value, variable=source_var).grid(row=row, column=0, sticky="w")
+
+    options_frame = ttk.LabelFrame(main_frame, text="参数", padding=10)
+    options_frame.grid(row=0, column=1, sticky="nsew")
+    options_frame.columnconfigure(1, weight=1)
+    ttk.Checkbutton(options_frame, text="先预览，不实际下载", variable=dry_run_var).grid(
+        row=0, column=0, columnspan=2, sticky="w"
+    )
+    ttk.Checkbutton(options_frame, text="跳过已存在文件", variable=skip_existing_var).grid(
+        row=1, column=0, columnspan=2, sticky="w", pady=(4, 8)
+    )
+    ttk.Label(options_frame, text="搜索关键词").grid(row=2, column=0, sticky="w", padx=(0, 8))
+    ttk.Entry(options_frame, textvariable=keyword_var).grid(row=2, column=1, sticky="ew")
+
+    ttk.Label(options_frame, text="文档链接").grid(row=3, column=0, sticky="nw", padx=(0, 8), pady=(8, 0))
+    url_text = tk.Text(options_frame, height=4, wrap="word")
+    url_text.grid(row=3, column=1, sticky="ew", pady=(8, 0))
+
+    ttk.Label(options_frame, text="日历开始").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+    ttk.Entry(options_frame, textvariable=calendar_start_var).grid(row=4, column=1, sticky="ew", pady=(8, 0))
+    ttk.Label(options_frame, text="日历结束").grid(row=5, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+    ttk.Entry(options_frame, textvariable=calendar_end_var).grid(row=5, column=1, sticky="ew", pady=(6, 0))
+    ttk.Label(options_frame, text="日历格式").grid(row=6, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+    ttk.Combobox(
+        options_frame,
+        textvariable=calendar_format_var,
+        values=("csv", "json", "ics"),
+        state="readonly",
+        width=8,
+    ).grid(row=6, column=1, sticky="w", pady=(6, 0))
+    ttk.Checkbutton(options_frame, text="导出全部可读日历", variable=all_calendars_var).grid(
+        row=7, column=1, sticky="w", pady=(6, 0)
+    )
+
+    log_frame = ttk.LabelFrame(root, text="运行日志", padding=8)
+    log_frame.grid(row=3, column=0, sticky="nsew", padx=16, pady=(4, 10))
+    log_frame.columnconfigure(0, weight=1)
+    log_frame.rowconfigure(0, weight=1)
+    log_text = tk.Text(log_frame, height=12, wrap="word")
+    log_text.grid(row=0, column=0, sticky="nsew")
+    scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    log_text.configure(yscrollcommand=scrollbar.set)
+
+    actions = ttk.Frame(root, padding=(16, 0, 16, 16))
+    actions.grid(row=4, column=0, sticky="ew")
+    actions.columnconfigure(2, weight=1)
+
+    def append_log(text: str) -> None:
+        log_text.insert("end", text)
+        log_text.see("end")
+
+    class TkLogWriter:
+        def write(self, value: str) -> int:
+            if value:
+                root.after(0, append_log, value)
+            return len(value)
+
+        def flush(self) -> None:
+            return
+
+    def set_running(is_running: bool) -> None:
+        running_var.set(is_running)
+        state = "disabled" if is_running else "normal"
+        auth_button.configure(state=state)
+        start_button.configure(state=state)
+
+    def run_background(title: str, target: Any) -> None:
+        if running_var.get():
+            messagebox.showinfo("正在运行", "当前任务还没有结束。")
+            return
+
+        set_running(True)
+        append_log(f"\n== {title} ==\n")
+
+        def worker() -> None:
+            code = 1
+            writer = TkLogWriter()
+            try:
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    code = target()
+                    print(f"exit code: {code}")
+            except Exception as exc:
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    print(f"error: {exc}", file=sys.stderr)
+            finally:
+                root.after(0, set_running, False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def collect_job() -> tuple[str, list[str]] | None:
+        output_dir = output_var.get().strip() or "./downloads"
+        source = source_var.get()
+        if source == "calendar":
+            start = calendar_start_var.get().strip()
+            end = calendar_end_var.get().strip()
+            if not start or not end:
+                messagebox.showerror("参数缺失", "日历导出需要填写开始和结束时间。")
+                return None
+            export_format = calendar_format_var.get()
+            output_path = Path(output_dir) if all_calendars_var.get() else Path(output_dir) / f"calendar-events.{export_format}"
+            args = [
+                str(output_path),
+                "--start",
+                start,
+                "--end",
+                end,
+                "--format",
+                export_format,
+            ]
+            if all_calendars_var.get():
+                args.append("--all-calendars")
+            return "导出日历", args
+
+        args = [output_dir]
+        if dry_run_var.get():
+            args.append("--dry-run")
+        if skip_existing_var.get():
+            args.append("--skip-existing")
+
+        if source == "url":
+            urls = [line.strip() for line in url_text.get("1.0", "end").splitlines() if line.strip()]
+            if not urls:
+                messagebox.showerror("参数缺失", "按链接下载需要至少填写一个文档链接。")
+                return None
+            for url in urls:
+                args.extend(["--url", url])
+        else:
+            args.extend(["--source", source])
+            if source == "search":
+                args.extend(["--search-key", keyword_var.get().strip()])
+
+        return "开始下载", args
+
+    def start_auth() -> None:
+        run_background("授权", lambda: auth_main(["--no-qr"]))
+
+    def start_download() -> None:
+        job = collect_job()
+        if not job:
+            return
+        title, args = job
+        target = calendar_main if source_var.get() == "calendar" else download_main
+        run_background(title, lambda: target(args))
+
+    auth_button = ttk.Button(actions, text="授权", command=start_auth)
+    auth_button.grid(row=0, column=0, sticky="w")
+    start_button = ttk.Button(actions, text="开始", command=start_download)
+    start_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
+    ttk.Button(actions, text="退出", command=root.destroy).grid(row=0, column=3, sticky="e")
+
+    append_log("先点“授权”完成飞书登录，再选择来源并点“开始”。\n")
+    root.mainloop()
+    return 0
 
 
 def menu_main(argv: list[str] | None = None) -> int:
@@ -1163,7 +1402,7 @@ def load_first_json_config(paths: Iterable[Path]) -> dict[str, Any]:
 def app_config_candidates(explicit_path: Path | None = None) -> list[Path]:
     if explicit_path:
         return [explicit_path]
-    return [project_app_config_path(), default_app_config_path()]
+    return [project_app_config_path(), bundled_app_config_path(), default_app_config_path()]
 
 
 def apply_saved_app_credentials(args: argparse.Namespace) -> None:
@@ -1235,6 +1474,13 @@ def default_app_config_path() -> Path:
 
 def project_app_config_path() -> Path:
     return Path.cwd() / ".feishu-doc-down" / "app.json"
+
+
+def bundled_app_config_path() -> Path:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        return Path(bundle_root) / ".feishu-doc-down" / "app.json"
+    return Path("__no_bundled_app_config__")
 
 
 def pkce_challenge(code_verifier: str) -> str:

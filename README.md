@@ -62,6 +62,21 @@ feishu-doc-down ./downloads
 feishu-doc-down menu
 ```
 
+如果想用窗口界面：
+
+```bash
+feishu-doc-down gui
+```
+
+打包出来的 GUI 客户端文件名是：
+
+```text
+feishu-doc-down-gui-windows-x64.exe
+feishu-doc-down-gui-linux-x64
+```
+
+打开后先点“授权”，浏览器授权成功后回到窗口，再选择“云盘 / 我的文档库 / 全部 / 搜索 / 按链接 / 日历日程”并点“开始”。
+
 菜单里可以选：
 
 ```text
@@ -240,7 +255,13 @@ feishu-doc-down calendar ./calendar-events.ics \
 
 ```bash
 python -m pip install ".[build]"
-python -m PyInstaller --onefile --name feishu-doc-down --hidden-import qrcode feishu_doc_down/cli.py
+python -m PyInstaller --onefile --name feishu-doc-down --hidden-import qrcode --add-data .feishu-doc-down/app.json:.feishu-doc-down feishu_doc_down/cli.py
+```
+
+本地打包当前平台的窗口客户端：
+
+```bash
+python -m PyInstaller --onefile --windowed --name feishu-doc-down-gui --hidden-import qrcode --add-data .feishu-doc-down/app.json:.feishu-doc-down feishu_doc_down/cli.py
 ```
 
 产物在 `dist/`：
@@ -253,12 +274,21 @@ Windows 上产物是：
 
 ```powershell
 dist\feishu-doc-down.exe menu
+dist\feishu-doc-down-gui.exe
+```
+
+Windows 上手动运行 PyInstaller 时，`--add-data` 分隔符用分号：
+
+```powershell
+python -m PyInstaller --onefile --windowed --name feishu-doc-down-gui --hidden-import qrcode --add-data ".feishu-doc-down/app.json;.feishu-doc-down" feishu_doc_down/cli.py
 ```
 
 仓库内置 GitHub Actions：打 `v*` tag 或手动运行 `build-binaries` workflow，会分别生成：
 
 - `feishu-doc-down-linux-x64`
 - `feishu-doc-down-windows-x64`
+- `feishu-doc-down-gui-linux-x64`
+- `feishu-doc-down-gui-windows-x64.exe`
 
 ## 需要的 token 和权限
 
