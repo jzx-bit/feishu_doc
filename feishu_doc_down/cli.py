@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+import getpass
 import hashlib
 import json
 import os
@@ -362,10 +363,13 @@ def parse_auth_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--redirect-uri", default="http://127.0.0.1:8765/callback", help="registered OAuth callback URL")
     parser.add_argument("--scope", default=DEFAULT_SCOPE, help="space-separated OAuth scopes")
     parser.add_argument("--config", type=Path, default=default_config_path(), help="saved auth config path")
+    parser.add_argument("--app-config", type=Path, default=default_app_config_path(), help="saved app credential config path")
     parser.add_argument("--timeout", type=int, default=300, help="seconds to wait for browser callback")
     parser.add_argument("--no-browser", action="store_true", help="do not try to open the authorization URL")
     parser.add_argument("--no-qr", action="store_true", help="do not print terminal QR code")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    apply_saved_app_credentials(args)
+    return args
 
 
 def parse_menu_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -402,6 +406,8 @@ def parse_calendar_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if raw_args and raw_args[0] == "auth":
+        if len(raw_args) > 1 and raw_args[1] == "app-config":
+            return auth_app_config_main(raw_args[2:])
         if len(raw_args) > 1 and raw_args[1] == "status":
             return auth_status_main(raw_args[2:])
         if len(raw_args) > 1 and raw_args[1] == "whoami":
@@ -598,12 +604,19 @@ def calendar_main(argv: list[str] | None = None) -> int:
 
 def auth_main(argv: list[str] | None = None) -> int:
     args = parse_auth_args(argv)
+    prompted = False
     if not args.app_id:
-        print("error: missing --app-id or FEISHU_APP_ID", file=sys.stderr)
-        return 2
+        args.app_id = prompt_text("请输入 Feishu App ID", "")
+        prompted = True
     if not args.app_secret:
-        print("error: missing --app-secret or FEISHU_APP_SECRET", file=sys.stderr)
+        args.app_secret = getpass.getpass("请输入 Feishu App Secret: ").strip()
+        prompted = True
+    if not args.app_id or not args.app_secret:
+        print("error: missing App ID or App Secret", file=sys.stderr)
         return 2
+    if prompted:
+        save_app_config_from_args(args)
+        print(f"saved app config to {args.app_config}")
 
     try:
         token_data = run_oauth_flow(args)
@@ -621,6 +634,43 @@ def auth_main(argv: list[str] | None = None) -> int:
         print(f"granted scope: {scope}")
     print("next: feishu-doc-down ./downloads")
     return 0
+
+
+def auth_app_config_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="feishu-doc-down auth app-config",
+        description="Save Feishu App ID/Secret locally without committing them to source code.",
+    )
+    parser.add_argument("--app-id", required=True, help="Feishu App ID")
+    parser.add_argument("--app-secret", required=True, help="Feishu App Secret")
+    parser.add_argument("--base-url", default="https://open.feishu.cn", help="OpenAPI base URL")
+    parser.add_argument("--auth-url", default="https://accounts.feishu.cn/open-apis/authen/v1/authorize")
+    parser.add_argument("--redirect-uri", default="http://127.0.0.1:8765/callback")
+    parser.add_argument("--scope", default=DEFAULT_SCOPE)
+    parser.add_argument("--app-config", type=Path, default=default_app_config_path(), help="saved app credential config path")
+    args = parser.parse_args(argv)
+
+    try:
+        save_app_config_from_args(args)
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"saved app config to {args.app_config}")
+    print("next: feishu-doc-down auth")
+    return 0
+
+
+def save_app_config_from_args(args: argparse.Namespace) -> None:
+    config = {
+        "app_id": args.app_id,
+        "app_secret": args.app_secret,
+        "base_url": args.base_url,
+        "auth_url": args.auth_url,
+        "redirect_uri": args.redirect_uri,
+        "scope": args.scope,
+    }
+    save_config_dict(args.app_config, config)
 
 
 def walk_all_sources(
@@ -1088,10 +1138,34 @@ def resolve_access_token(args: argparse.Namespace) -> str:
 
 
 def load_token_config(config_path: Path) -> dict[str, Any]:
+    return load_json_config(config_path)
+
+
+def load_app_config(config_path: Path) -> dict[str, Any]:
+    return load_json_config(config_path)
+
+
+def load_json_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         return {}
     with config_path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def apply_saved_app_credentials(args: argparse.Namespace) -> None:
+    config = load_app_config(args.app_config)
+    if not args.app_id:
+        args.app_id = config.get("app_id")
+    if not args.app_secret:
+        args.app_secret = config.get("app_secret")
+    if getattr(args, "base_url", None) == "https://open.feishu.cn" and config.get("base_url"):
+        args.base_url = config["base_url"]
+    if getattr(args, "auth_url", None) == "https://accounts.feishu.cn/open-apis/authen/v1/authorize" and config.get("auth_url"):
+        args.auth_url = config["auth_url"]
+    if getattr(args, "redirect_uri", None) == "http://127.0.0.1:8765/callback" and config.get("redirect_uri"):
+        args.redirect_uri = config["redirect_uri"]
+    if getattr(args, "scope", None) == DEFAULT_SCOPE and config.get("scope"):
+        args.scope = config["scope"]
 
 
 def save_token_config(config_path: Path, args: argparse.Namespace, token_data: dict[str, Any]) -> None:
@@ -1136,6 +1210,13 @@ def default_config_path() -> Path:
         return Path(os.environ["APPDATA"]) / "feishu-doc-down" / "token.json"
     config_home = Path(os.getenv("XDG_CONFIG_HOME") or Path.home() / ".config")
     return config_home / "feishu-doc-down" / "token.json"
+
+
+def default_app_config_path() -> Path:
+    if os.name == "nt" and os.getenv("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "feishu-doc-down" / "app.json"
+    config_home = Path(os.getenv("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return config_home / "feishu-doc-down" / "app.json"
 
 
 def pkce_challenge(code_verifier: str) -> str:

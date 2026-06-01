@@ -20,6 +20,22 @@ export FEISHU_APP_SECRET='xxxx'
 feishu-doc-down auth
 ```
 
+也可以把应用信息保存到本机配置文件，之后不用每次 export：
+
+```bash
+feishu-doc-down auth app-config \
+  --app-id 'cli_xxxx' \
+  --app-secret 'xxxx'
+
+feishu-doc-down auth
+```
+
+如果没有环境变量、也没有保存过应用信息，直接运行 `auth` 会提示输入 App ID / App Secret，并自动保存到本机：
+
+```bash
+feishu-doc-down auth
+```
+
 然后下载：
 
 ```bash
@@ -267,6 +283,8 @@ feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata
 `drive:drive` 包含编辑/管理能力，范围明显更大；但飞书历史版 Explorer v2 的“获取文件夹下文档清单”接口明确要求这个权限。
 
 授权结果保存到 `~/.config/feishu-doc-down/token.json`，文件权限会设置为 `0600`。这个文件里包含 access token、refresh token 和 App Secret，不要提交到仓库或发给别人。
+
+应用信息可保存到 `~/.config/feishu-doc-down/app.json`，用于在没有 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 环境变量时自动授权。
 
 Windows 打包版会保存到 `%APPDATA%\feishu-doc-down\token.json`。
 
