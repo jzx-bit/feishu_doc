@@ -522,7 +522,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     ttk.Entry(options_frame, textvariable=keyword_var).grid(row=2, column=1, sticky="ew")
 
     ttk.Label(options_frame, text="文档链接").grid(row=3, column=0, sticky="nw", padx=(0, 8), pady=(8, 0))
-    url_text = tk.Text(options_frame, height=4, wrap="word", font=(gui_font_family, 10))
+    url_text = tk.Text(options_frame, height=4, wrap="word", font="TkTextFont")
     url_text.grid(row=3, column=1, sticky="ew", pady=(8, 0))
 
     ttk.Label(options_frame, text="日历开始").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
@@ -545,7 +545,7 @@ def gui_main(argv: list[str] | None = None) -> int:
     log_frame.grid(row=3, column=0, sticky="nsew", padx=16, pady=(4, 10))
     log_frame.columnconfigure(0, weight=1)
     log_frame.rowconfigure(0, weight=1)
-    log_text = tk.Text(log_frame, height=12, wrap="word", font=(gui_font_family, 10))
+    log_text = tk.Text(log_frame, height=12, wrap="word", font="TkTextFont")
     log_text.grid(row=0, column=0, sticky="nsew")
     scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
     scrollbar.grid(row=0, column=1, sticky="ns")
@@ -658,6 +658,23 @@ def gui_main(argv: list[str] | None = None) -> int:
     start_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
     ttk.Button(actions, text="退出", command=root.destroy).grid(row=0, column=3, sticky="e")
 
+    font_resize_after: list[Any] = [None]
+
+    def schedule_font_resize(event: Any) -> None:
+        if event.widget is not root:
+            return
+        if font_resize_after[0]:
+            root.after_cancel(font_resize_after[0])
+        font_resize_after[0] = root.after(80, resize_gui_fonts)
+
+    def resize_gui_fonts() -> None:
+        font_resize_after[0] = None
+        width = max(root.winfo_width(), 1)
+        height = max(root.winfo_height(), 1)
+        scale = min(width / 860, height / 640)
+        apply_gui_font_scale(root, style, tkfont, gui_font_family, scale)
+
+    root.bind("<Configure>", schedule_font_resize)
     append_log("先点“授权”完成飞书登录，再选择来源并点“开始”。\n")
     root.mainloop()
     return 0
@@ -669,15 +686,24 @@ def configure_gui_fonts(root: Any, style: Any, tkfont: Any) -> str:
     default_family = tkfont.nametofont("TkDefaultFont").actual("family")
     family = next((available[name.casefold()] for name in candidates if name.casefold() in available), default_family)
 
+    root.option_add("*Font", (family, 10))
+    apply_gui_font_scale(root, style, tkfont, family, 1.0)
+    return family
+
+
+def apply_gui_font_scale(root: Any, style: Any, tkfont: Any, family: str, scale: float) -> None:
+    normal_size = clamp_int(round(10 * scale), 9, 16)
+    small_size = clamp_int(round(9 * scale), 8, 14)
+    title_size = clamp_int(round(16 * scale), 14, 26)
     font_specs = {
-        "TkDefaultFont": {"family": family, "size": 10},
-        "TkTextFont": {"family": family, "size": 10},
-        "TkMenuFont": {"family": family, "size": 10},
-        "TkHeadingFont": {"family": family, "size": 10, "weight": "bold"},
-        "TkCaptionFont": {"family": family, "size": 10},
-        "TkSmallCaptionFont": {"family": family, "size": 9},
-        "TkIconFont": {"family": family, "size": 10},
-        "TkTooltipFont": {"family": family, "size": 9},
+        "TkDefaultFont": {"family": family, "size": normal_size},
+        "TkTextFont": {"family": family, "size": normal_size},
+        "TkMenuFont": {"family": family, "size": normal_size},
+        "TkHeadingFont": {"family": family, "size": normal_size, "weight": "bold"},
+        "TkCaptionFont": {"family": family, "size": normal_size},
+        "TkSmallCaptionFont": {"family": family, "size": small_size},
+        "TkIconFont": {"family": family, "size": normal_size},
+        "TkTooltipFont": {"family": family, "size": small_size},
     }
     for name, spec in font_specs.items():
         try:
@@ -685,7 +711,7 @@ def configure_gui_fonts(root: Any, style: Any, tkfont: Any) -> str:
         except Exception:
             continue
 
-    default_font = (family, 10)
+    default_font = (family, normal_size)
     root.option_add("*Font", default_font)
     style.configure(".", font=default_font)
     style.configure("TLabel", font=default_font)
@@ -694,9 +720,12 @@ def configure_gui_fonts(root: Any, style: Any, tkfont: Any) -> str:
     style.configure("TCombobox", font=default_font)
     style.configure("TRadiobutton", font=default_font)
     style.configure("TCheckbutton", font=default_font)
-    style.configure("TLabelframe.Label", font=(family, 10, "bold"))
-    style.configure("Title.TLabel", font=(family, 16, "bold"))
-    return family
+    style.configure("TLabelframe.Label", font=(family, normal_size, "bold"))
+    style.configure("Title.TLabel", font=(family, title_size, "bold"))
+
+
+def clamp_int(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, value))
 
 
 def gui_font_candidates() -> list[str]:
