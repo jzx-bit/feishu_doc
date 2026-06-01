@@ -363,7 +363,7 @@ def parse_auth_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--redirect-uri", default="http://127.0.0.1:8765/callback", help="registered OAuth callback URL")
     parser.add_argument("--scope", default=DEFAULT_SCOPE, help="space-separated OAuth scopes")
     parser.add_argument("--config", type=Path, default=default_config_path(), help="saved auth config path")
-    parser.add_argument("--app-config", type=Path, default=default_app_config_path(), help="saved app credential config path")
+    parser.add_argument("--app-config", type=Path, default=None, help="saved app credential config path")
     parser.add_argument("--timeout", type=int, default=300, help="seconds to wait for browser callback")
     parser.add_argument("--no-browser", action="store_true", help="do not try to open the authorization URL")
     parser.add_argument("--no-qr", action="store_true", help="do not print terminal QR code")
@@ -647,7 +647,7 @@ def auth_app_config_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--auth-url", default="https://accounts.feishu.cn/open-apis/authen/v1/authorize")
     parser.add_argument("--redirect-uri", default="http://127.0.0.1:8765/callback")
     parser.add_argument("--scope", default=DEFAULT_SCOPE)
-    parser.add_argument("--app-config", type=Path, default=default_app_config_path(), help="saved app credential config path")
+    parser.add_argument("--app-config", type=Path, default=project_app_config_path(), help="saved app credential config path")
     args = parser.parse_args(argv)
 
     try:
@@ -1152,8 +1152,22 @@ def load_json_config(config_path: Path) -> dict[str, Any]:
         return json.load(fh)
 
 
+def load_first_json_config(paths: Iterable[Path]) -> dict[str, Any]:
+    for path in paths:
+        config = load_json_config(path)
+        if config:
+            return config
+    return {}
+
+
+def app_config_candidates(explicit_path: Path | None = None) -> list[Path]:
+    if explicit_path:
+        return [explicit_path]
+    return [project_app_config_path(), default_app_config_path()]
+
+
 def apply_saved_app_credentials(args: argparse.Namespace) -> None:
-    config = load_app_config(args.app_config)
+    config = load_first_json_config(app_config_candidates(args.app_config))
     if not args.app_id:
         args.app_id = config.get("app_id")
     if not args.app_secret:
@@ -1217,6 +1231,10 @@ def default_app_config_path() -> Path:
         return Path(os.environ["APPDATA"]) / "feishu-doc-down" / "app.json"
     config_home = Path(os.getenv("XDG_CONFIG_HOME") or Path.home() / ".config")
     return config_home / "feishu-doc-down" / "app.json"
+
+
+def project_app_config_path() -> Path:
+    return Path.cwd() / ".feishu-doc-down" / "app.json"
 
 
 def pkce_challenge(code_verifier: str) -> str:

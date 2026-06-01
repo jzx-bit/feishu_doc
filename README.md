@@ -20,7 +20,7 @@ export FEISHU_APP_SECRET='xxxx'
 feishu-doc-down auth
 ```
 
-也可以把应用信息保存到本机配置文件，之后不用每次 export：
+也可以把应用信息保存到项目目录配置文件，之后不用每次 export：
 
 ```bash
 feishu-doc-down auth app-config \
@@ -28,6 +28,18 @@ feishu-doc-down auth app-config \
   --app-secret 'xxxx'
 
 feishu-doc-down auth
+```
+
+默认会写到当前目录：
+
+```text
+.feishu-doc-down/app.json
+```
+
+程序读取优先级：
+
+```text
+命令行参数 > 环境变量 > 当前目录 .feishu-doc-down/app.json > 用户目录配置
 ```
 
 如果没有环境变量、也没有保存过应用信息，直接运行 `auth` 会提示输入 App ID / App Secret，并自动保存到本机：
@@ -284,7 +296,7 @@ feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata
 
 授权结果保存到 `~/.config/feishu-doc-down/token.json`，文件权限会设置为 `0600`。这个文件里包含 access token、refresh token 和 App Secret，不要提交到仓库或发给别人。
 
-应用信息可保存到 `~/.config/feishu-doc-down/app.json`，用于在没有 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 环境变量时自动授权。
+应用信息默认保存到当前项目的 `.feishu-doc-down/app.json`，也可以保存到 `~/.config/feishu-doc-down/app.json`，用于在没有 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 环境变量时自动授权。
 
 Windows 打包版会保存到 `%APPDATA%\feishu-doc-down\token.json`。
 

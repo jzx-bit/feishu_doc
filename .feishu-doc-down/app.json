@@ -1,0 +1,8 @@
+{
+  "app_id": "cli_aa939aeedff81bc3",
+  "app_secret": "a2o1N7Xdt8ppySPrgHaBshYCIccw7Jai",
+  "base_url": "https://open.feishu.cn",
+  "auth_url": "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
+  "redirect_uri": "http://127.0.0.1:8765/callback",
+  "scope": "auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access"
+}
