@@ -75,7 +75,7 @@ feishu-doc-down-gui-windows-x64.exe
 feishu-doc-down-gui-linux-x64
 ```
 
-打开后先点“授权”，浏览器授权成功后回到窗口，再选择“云盘 / 我的文档库 / 全部 / 搜索 / 按链接 / 日历日程”并点“开始”。
+打开后先点“授权”，浏览器授权成功后回到窗口，再选择“云盘 / 我的文档库 / 全部 / 搜索 / 按链接 / 日历日程 / 会议录制”并点“开始”。
 
 菜单里可以选：
 
@@ -86,6 +86,7 @@ feishu-doc-down-gui-linux-x64
 4. 搜索
 5. 按链接下载
 6. 导出日历日程
+7. 下载会议录制
 ```
 
 默认下载来源是“我的文档库”，对应飞书 Web 左侧“我的文档库”侧栏：
@@ -249,6 +250,50 @@ feishu-doc-down calendar ./calendar-events.ics \
 
 说明：飞书 `calendar/v4/calendars/:calendar_id/events` 按 `start_time` / `end_time` 查询时不分页；如果时间范围太大，服务端可能按 `page_size` 截断。建议按月或按季度导出。
 
+## 下载会议录制
+
+下载最近 90 天内当前用户可搜索到、且当前用户有权限读取的会议录制媒体文件：
+
+```bash
+feishu-doc-down recordings ./recordings
+```
+
+指定时间范围：
+
+```bash
+feishu-doc-down recordings ./recordings \
+  --start 2026-05-01 \
+  --end 2026-06-01
+```
+
+按关键词筛选会议：
+
+```bash
+feishu-doc-down recordings ./recordings \
+  --query 周会 \
+  --start 2026-05-01 \
+  --end 2026-06-01
+```
+
+已知会议 ID 时直接下载：
+
+```bash
+feishu-doc-down recordings ./recordings \
+  --meeting-id 6911188411932033028
+```
+
+先预览不下载：
+
+```bash
+feishu-doc-down recordings ./recordings --dry-run
+```
+
+说明：
+
+- 工具先调用视频会议搜索接口拿 `meeting_id`，再获取会议录制的妙记链接，最后调用妙记音视频下载接口落地为 `.mp4` 文件。
+- 默认搜索最近 90 天，飞书会议搜索接口单次最多返回 150 条记录；历史更多时建议按月分批运行。
+- 使用 `user_access_token` 时，飞书录制接口只允许获取当前用户有权限的录制。没有权限、录制未完成、录制太短未生成文件，都会在 `recordings-manifest.jsonl` 里记录失败原因。
+
 ## 打包客户端
 
 本地打包当前平台的单文件命令行客户端：
@@ -303,6 +348,9 @@ python -m PyInstaller --onefile --windowed --name feishu-doc-down-gui --hidden-i
 - 获取“我的文档库”节点列表：`wiki:wiki:readonly` 或 `wiki:node:retrieve`
 - 读取日历列表/主日历：`calendar:calendar:read`
 - 读取日程列表：`calendar:calendar.event:read`
+- 搜索视频会议：`vc:meeting.search:read`
+- 获取会议录制信息：`vc:record:readonly`
+- 下载妙记音视频文件：`minutes:minutes.media:export`
 - 下载普通云空间文件：`drive:file:download`
 - 导出在线文档：`docs:document:export`
 - 刷新 token：`offline_access`
@@ -313,13 +361,13 @@ python -m PyInstaller --onefile --windowed --name feishu-doc-down-gui --hidden-i
 建议一次性申请并授权这些 scope：
 
 ```text
-auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access
+auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read vc:meeting.search:read vc:record:readonly minutes:minutes.media:export drive:file:download docs:document:export offline_access
 ```
 
 如果你的租户权限 key 不一样，可以显式传入：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read vc:meeting.search:read vc:record:readonly minutes:minutes.media:export drive:file:download docs:document:export offline_access'
 ```
 
 `drive:drive` 包含编辑/管理能力，范围明显更大；但飞书历史版 Explorer v2 的“获取文件夹下文档清单”接口明确要求这个权限。
@@ -392,7 +440,7 @@ feishu-doc-down ./downloads --token '你的_user_access_token'
 处理方式：
 
 ```bash
-feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read drive:file:download docs:document:export offline_access'
+feishu-doc-down auth --scope 'auth:user.id:read drive:drive drive:drive.metadata:readonly drive:drive:readonly search:docs:read wiki:wiki:readonly wiki:node:retrieve calendar:calendar:read calendar:calendar.event:read vc:meeting.search:read vc:record:readonly minutes:minutes.media:export drive:file:download docs:document:export offline_access'
 feishu-doc-down ./downloads
 ```
 
@@ -435,3 +483,6 @@ feishu-doc-down ./downloads
 - 获取主日历：`POST /open-apis/calendar/v4/calendars/primary`
 - 获取日历列表：`GET /open-apis/calendar/v4/calendars`
 - 获取日程列表：`GET /open-apis/calendar/v4/calendars/:calendar_id/events`
+- 搜索会议记录：`POST /open-apis/vc/v1/meetings/search`
+- 获取会议录制文件：`GET /open-apis/vc/v1/meetings/:meeting_id/recording`
+- 获取妙记音视频下载链接：`GET /open-apis/minutes/v1/minutes/:minute_token/media`
