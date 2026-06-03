@@ -282,6 +282,13 @@ feishu-doc-down recordings ./recordings \
   --meeting-id 6911188411932033028
 ```
 
+已知妙记链接时直接下载：
+
+```bash
+feishu-doc-down recordings ./recordings \
+  --minute-url 'https://xxx.feishu.cn/minutes/obcnxxxx'
+```
+
 先预览不下载：
 
 ```bash

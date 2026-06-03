@@ -485,6 +485,8 @@ def parse_recording_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="search end datetime/date, default is tomorrow",
     )
     parser.add_argument("--meeting-id", action="append", default=[], help="specific meeting ID; repeatable")
+    parser.add_argument("--minute-token", action="append", default=[], help="specific Feishu Minutes token; repeatable")
+    parser.add_argument("--minute-url", action="append", default=[], help="specific Feishu Minutes URL; repeatable")
     parser.add_argument("--page-size", type=int, default=30, help="meeting search page size, max 30")
     parser.add_argument("--timeout", type=int, default=120, help="HTTP request timeout in seconds")
     parser.add_argument("--dry-run", action="store_true", help="print planned actions without downloading")
@@ -725,6 +727,9 @@ def gui_main(argv: list[str] | None = None) -> int:
                 messagebox.showerror("参数缺失", "会议录制导出需要填写开始和结束时间。")
                 return None
             args = [output_dir, "--start", start, "--end", end]
+            minute_urls = [line.strip() for line in url_text.get("1.0", "end").splitlines() if line.strip()]
+            for minute_url in minute_urls:
+                args.extend(["--minute-url", minute_url])
             query = keyword_var.get().strip()
             if query:
                 args.extend(["--query", query])
@@ -905,6 +910,12 @@ def menu_main(argv: list[str] | None = None) -> int:
         start = prompt_text("开始时间，例如 2026-05-01", (datetime.now().astimezone().date() - timedelta(days=90)).isoformat())
         end = prompt_text("结束时间，例如 2026-06-01", (datetime.now().astimezone().date() + timedelta(days=1)).isoformat())
         keyword = prompt_text("搜索关键词，可直接回车跳过", "")
+        minute_urls = []
+        while True:
+            minute_url = prompt_text("粘贴妙记链接，直接回车结束", "")
+            if not minute_url:
+                break
+            minute_urls.append(minute_url)
         recording_args = [
             str(output_dir),
             "--config",
@@ -918,6 +929,8 @@ def menu_main(argv: list[str] | None = None) -> int:
         ]
         if keyword:
             recording_args += ["--query", keyword]
+        for minute_url in minute_urls:
+            recording_args += ["--minute-url", minute_url]
         if args.dry_run or prompt_yes_no("先 dry-run 预览，不实际下载吗", False):
             recording_args.append("--dry-run")
         if args.skip_existing or prompt_yes_no("跳过已存在文件吗", True):
@@ -1085,28 +1098,43 @@ def recordings_main(argv: list[str] | None = None) -> int:
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = args.manifest or args.output_dir / "recordings-manifest.jsonl"
+        minute_entries = []
+        for minute_url in args.minute_url:
+            minute_token = extract_minute_token(minute_url)
+            if not minute_token:
+                raise FeishuError(f"cannot extract minute token from URL: {minute_url}")
+            minute_entries.append((minute_token, minute_url))
+        minute_entries.extend((token.strip(), None) for token in args.minute_token if token.strip())
+
+        start_dt = datetime.fromisoformat(start_iso)
+        end_dt = datetime.fromisoformat(end_iso)
+        effective_query = args.query.strip() or "会议"
         meeting_items = (
             [{"id": meeting_id, "display_info": meeting_id, "meta_data": {}} for meeting_id in args.meeting_id]
-            if args.meeting_id
-            else client.search_meetings(args.query.strip(), start_iso, end_iso, args.page_size)
+            if args.meeting_id or minute_entries
+            else client.search_meetings(effective_query, start_iso, end_iso, args.page_size)
         )
 
         stats = DownloadStats()
         seen_meeting_ids: set[str] = set()
         with manifest_path.open("a", encoding="utf-8") as manifest:
+            for minute_token, minute_url in minute_entries:
+                title = f"minutes-{minute_token}"
+                output_path = args.output_dir / f"{sanitize_filename(title)}.mp4"
+                stats = merge_stats(
+                    stats,
+                    download_minutes_media(client, args, manifest, None, title, minute_token, minute_url, output_path),
+                )
+
             for item in meeting_items:
                 meeting_id = str(item.get("id") or item.get("meeting_id") or "").strip()
                 if not meeting_id or meeting_id in seen_meeting_ids:
                     continue
                 seen_meeting_ids.add(meeting_id)
+                if not args.meeting_id and not meeting_item_in_range(item, start_dt, end_dt):
+                    continue
                 title = meeting_title_from_search_item(item, meeting_id)
                 output_path = args.output_dir / f"{sanitize_filename(title + '-' + meeting_id)}.mp4"
-
-                if args.skip_existing and output_path.exists():
-                    print(f"skip existing recording: {title} -> {output_path}")
-                    stats = stats.add(skipped=1)
-                    write_recording_manifest(manifest, "skipped", meeting_id, title, None, None, output_path, "exists")
-                    continue
 
                 try:
                     recording = client.get_meeting_recording(meeting_id)
@@ -1114,33 +1142,18 @@ def recordings_main(argv: list[str] | None = None) -> int:
                     minute_token = extract_minute_token(recording_url)
                     if not minute_token:
                         raise FeishuError("recording response does not contain a minutes URL")
-
-                    if args.dry_run:
-                        print(f"download recording: {title} ({meeting_id}) -> {output_path}")
-                        stats = stats.add(planned=1)
-                        write_recording_manifest(
+                    stats = merge_stats(
+                        stats,
+                        download_minutes_media(
+                            client,
+                            args,
                             manifest,
-                            "planned",
                             meeting_id,
                             title,
                             minute_token,
                             recording_url,
                             output_path,
-                        )
-                        continue
-
-                    download_url = client.get_minutes_media_download_url(minute_token)
-                    client.download_external_url(download_url, output_path)
-                    print(f"download recording: {title} ({meeting_id}) -> {output_path}")
-                    stats = stats.add(downloaded=1)
-                    write_recording_manifest(
-                        manifest,
-                        "downloaded",
-                        meeting_id,
-                        title,
-                        minute_token,
-                        recording_url,
-                        output_path,
+                        ),
                     )
                     time.sleep(0.25)
                 except (requests.RequestException, FeishuError, OSError) as exc:
@@ -1357,6 +1370,39 @@ def meeting_title_from_search_item(item: dict[str, Any], fallback: str) -> str:
     return fallback
 
 
+def meeting_item_in_range(item: dict[str, Any], start_dt: datetime, end_dt: datetime) -> bool:
+    meeting_dt = parse_meeting_datetime_from_display(str(item.get("display_info") or ""), start_dt, end_dt)
+    if not meeting_dt:
+        return True
+    return start_dt <= meeting_dt < end_dt
+
+
+def parse_meeting_datetime_from_display(value: str, start_dt: datetime, end_dt: datetime) -> datetime | None:
+    normalized = strip_markup(value)
+    full_match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})", normalized)
+    if full_match:
+        year, month, day, hour, minute = map(int, full_match.groups())
+        return datetime(year, month, day, hour, minute, tzinfo=start_dt.tzinfo)
+
+    short_match = re.search(r"(?<!\d)(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})", normalized)
+    if not short_match:
+        return None
+
+    month, day, hour, minute = map(int, short_match.groups())
+    years = list(dict.fromkeys([start_dt.year, end_dt.year, datetime.now().astimezone().year]))
+    for year in years:
+        try:
+            candidate = datetime(year, month, day, hour, minute, tzinfo=start_dt.tzinfo)
+        except ValueError:
+            continue
+        if start_dt <= candidate < end_dt:
+            return candidate
+    try:
+        return datetime(start_dt.year, month, day, hour, minute, tzinfo=start_dt.tzinfo)
+    except ValueError:
+        return None
+
+
 def strip_markup(value: str) -> str:
     return re.sub(r"<[^>]+>|＜[^＞]+＞", "", value).strip()
 
@@ -1400,6 +1446,33 @@ def write_recording_manifest(
         + "\n"
     )
     manifest.flush()
+
+
+def download_minutes_media(
+    client: FeishuClient,
+    args: argparse.Namespace,
+    manifest: Any,
+    meeting_id: str | None,
+    title: str,
+    minute_token: str,
+    recording_url: str | None,
+    output_path: Path,
+) -> DownloadStats:
+    if args.skip_existing and output_path.exists():
+        print(f"skip existing recording: {title} -> {output_path}")
+        write_recording_manifest(manifest, "skipped", meeting_id or "", title, minute_token, recording_url, output_path, "exists")
+        return DownloadStats(skipped=1)
+
+    if args.dry_run:
+        print(f"download recording: {title} ({meeting_id or minute_token}) -> {output_path}")
+        write_recording_manifest(manifest, "planned", meeting_id or "", title, minute_token, recording_url, output_path)
+        return DownloadStats(planned=1)
+
+    download_url = client.get_minutes_media_download_url(minute_token)
+    client.download_external_url(download_url, output_path)
+    print(f"download recording: {title} ({meeting_id or minute_token}) -> {output_path}")
+    write_recording_manifest(manifest, "downloaded", meeting_id or "", title, minute_token, recording_url, output_path)
+    return DownloadStats(downloaded=1)
 
 
 def ensure_calendar_suffix(path: Path, export_format: str) -> Path:
