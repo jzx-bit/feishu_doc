@@ -235,9 +235,9 @@ class FeishuClient:
                 payload["query"] = query
             meeting_filter: dict[str, Any] = {}
             if start_time:
-                meeting_filter["start_time"] = start_time
+                meeting_filter["start_time"] = {"gte": start_time}
             if end_time:
-                meeting_filter["end_time"] = end_time
+                meeting_filter["end_time"] = {"lte": end_time}
             if meeting_filter:
                 payload["meeting_filter"] = meeting_filter
 
