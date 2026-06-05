@@ -380,7 +380,7 @@ def parse_download_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--source",
         choices=["my-library", "explorer", "folder", "search", "all"],
         default="my-library",
-        help="my-library downloads the Docs sidebar library; explorer/folder use Drive; search downloads searchable docs",
+        help="my-library downloads the Docs sidebar library; explorer/folder use Drive v1; search downloads searchable docs",
     )
     parser.add_argument("--url", action="append", default=[], help="download a specific Feishu document URL; repeatable")
     parser.add_argument("--search-key", default="", help="keyword for --source search. Empty means all searchable docs.")
@@ -1025,7 +1025,7 @@ def download_main(argv: list[str] | None = None) -> int:
                 stats = walk_folder(client, args, manifest, root_token, args.output_dir, [], set())
             elif args.source == "explorer":
                 root_token = args.root_folder_token or client.get_root_folder_token()
-                stats = walk_explorer_folder(client, args, manifest, root_token, args.output_dir, [], set())
+                stats = walk_folder(client, args, manifest, root_token, args.output_dir, [], set())
             else:
                 stats = walk_search(client, args, manifest, args.output_dir)
     except (requests.RequestException, FeishuError, OSError) as exc:
@@ -1254,7 +1254,7 @@ def walk_all_sources(
     root_token = args.root_folder_token or client.get_root_folder_token()
     stats = merge_stats(
         stats,
-        walk_explorer_folder(client, args, manifest, root_token, output_dir / "drive", [], set()),
+        walk_folder(client, args, manifest, root_token, output_dir / "drive", [], set()),
     )
 
     if args.search_key:
@@ -1282,7 +1282,10 @@ def walk_my_library(
             return stats.add(skipped=1)
         visited_nodes.add(parent_node_token)
 
-    for node in client.list_wiki_nodes("my_library", parent_node_token, min(args.page_size, 50)):
+    nodes = list(client.list_wiki_nodes("my_library", parent_node_token, min(args.page_size, 50)))
+    folder_name_counts = count_folder_names(item_from_wiki_node(node) for node in nodes)
+
+    for node in nodes:
         item = item_from_wiki_node(node)
         item_type = str(item.get("type") or "")
         item_name = str(item.get("name") or item.get("token") or "untitled")
@@ -1292,7 +1295,7 @@ def walk_my_library(
 
         node_token = str(node.get("node_token") or "")
         if item_type == "folder":
-            next_dir = local_dir / safe_name
+            next_dir = local_dir / disambiguate_folder_name(safe_name, node_token, folder_name_counts)
             print(f"folder: {'/'.join(current_remote_path)}")
             if not args.dry_run:
                 next_dir.mkdir(parents=True, exist_ok=True)
@@ -1968,7 +1971,10 @@ def walk_folder(
         return stats.add(skipped=1)
     visited_folders.add(folder_token)
 
-    for item in client.list_files(folder_token, args.page_size):
+    items = list(client.list_files(folder_token, args.page_size))
+    folder_name_counts = count_folder_names(items)
+
+    for item in items:
         item_type = str(item.get("type") or "")
         item_name = str(item.get("name") or item.get("token") or "untitled")
         token = str(item.get("token") or "")
@@ -1988,7 +1994,7 @@ def walk_folder(
         current_remote_path = remote_path + [item_name]
 
         if item_type in FOLDER_TYPES:
-            next_dir = local_dir / safe_name
+            next_dir = local_dir / disambiguate_folder_name(safe_name, token, folder_name_counts)
             print(f"folder: {'/'.join(current_remote_path)}")
             if not args.dry_run:
                 next_dir.mkdir(parents=True, exist_ok=True)
@@ -2081,7 +2087,10 @@ def walk_explorer_folder(
         return stats.add(skipped=1)
     visited_folders.add(folder_token)
 
-    for item in client.list_explorer_children(folder_token):
+    items = list(client.list_explorer_children(folder_token))
+    folder_name_counts = count_folder_names(items)
+
+    for item in items:
         item_type = str(item.get("type") or "")
         item_name = str(item.get("name") or item.get("token") or "untitled")
         token = str(item.get("token") or "")
@@ -2095,7 +2104,7 @@ def walk_explorer_folder(
             continue
 
         if item_type in FOLDER_TYPES:
-            next_dir = local_dir / safe_name
+            next_dir = local_dir / disambiguate_folder_name(safe_name, token, folder_name_counts)
             print(f"folder: {'/'.join(current_remote_path)}")
             if not args.dry_run:
                 next_dir.mkdir(parents=True, exist_ok=True)
@@ -2218,6 +2227,24 @@ def export_extension(item_type: str, args: argparse.Namespace) -> str:
 def sanitize_filename(name: str) -> str:
     clean = INVALID_FILENAME_CHARS.sub("_", name).strip().strip(".")
     return clean or "untitled"
+
+
+def count_folder_names(items: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        item_type = str(item.get("type") or "")
+        if item_type not in FOLDER_TYPES:
+            continue
+        name = sanitize_filename(str(item.get("name") or item.get("token") or "untitled"))
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def disambiguate_folder_name(safe_name: str, token: str, folder_name_counts: dict[str, int]) -> str:
+    if folder_name_counts.get(safe_name, 0) <= 1:
+        return safe_name
+    token_suffix = sanitize_filename(token)[-8:] if token else secrets.token_hex(4)
+    return f"{safe_name}-{token_suffix}"
 
 
 def ensure_suffix(path: Path, extension: str) -> Path:

@@ -461,7 +461,7 @@ feishu-doc-down ./downloads
 - `sheet` / `bitable` 导出为 `xlsx` 或 `csv`，默认 `xlsx`。
 - `file` 类型按原文件下载。
 - `--source folder` 使用新版 `GET /open-apis/drive/v1/files` 递归遍历“我的空间”文件夹树；部分租户/空间形态下根目录可能返回空。
-- `--source explorer` 使用 `GET /open-apis/drive/explorer/v2/folder/:folderToken/children` 递归遍历“我的空间”文件夹树，并在本地创建同名目录。
+- `--source explorer` / 菜单“云盘”现在使用新版 `GET /open-apis/drive/v1/files` 分页递归遍历“我的空间”文件夹树，并在本地创建同名目录；同级同名文件夹会自动追加 token 后缀，避免本地目录合并。
 - `--source search` 通过云文档搜索下载当前用户可搜索到的文档，保存为扁平文件列表。
 - `--url` 支持按链接直接下载 `docx` / `doc` / `sheets` / `base` / `bitable`。
 - Explorer v2 返回的快捷方式如果包含目标 token/type，会直接按目标文档下载。
@@ -480,8 +480,8 @@ feishu-doc-down ./downloads
 
 - 获取我的空间 root folder 元信息：`GET /open-apis/drive/explorer/v2/root_folder/meta`
 - 获取我的文档库节点列表：`GET /open-apis/wiki/v2/spaces/my_library/nodes`
-- 获取 Explorer v2 文件夹下文档清单：`GET /open-apis/drive/explorer/v2/folder/:folderToken/children`
 - 获取文件夹中的文件清单：`GET /open-apis/drive/v1/files`
+- 获取 Explorer v2 文件夹下文档清单：`GET /open-apis/drive/explorer/v2/folder/:folderToken/children`（历史兼容代码保留，新版云盘下载默认不再使用）
 - 搜索云文档：`POST /open-apis/suite/docs-api/search/object`
 - 创建导出任务：`POST /open-apis/drive/v1/export_tasks`
 - 查询导出任务：`GET /open-apis/drive/v1/export_tasks/:ticket`
